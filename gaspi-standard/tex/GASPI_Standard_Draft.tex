@@ -24,6 +24,11 @@
 
 \usepackage{ifthen}
 
+%\newcommand*{\HYPERREF}{} %uncomment for hyperref generation
+\ifdefined\HYPERREF
+\usepackage{hyperref}
+\fi
+
 \setlength{\tabcolsep}{5pt}
 \setlength{\arraycolsep}{5pt}
 \setlength{\cmidrulekern}{4pt}
@@ -57,8 +62,13 @@
 \newcommand{\zerowsep}{\hskip 0pt plus 0.1pt minus 0.1pt}
 
 \makeatletter
+\ifdefined\HYPERREF
+\newcommand{\ZSEP}[1]{#1} 
+\newcommand{\zsep}[1]{#1}
+\else
 \newcommand{\ZSEP}[1]{\ifx#1\@@@EOZ@@@\let\next\relax\else\ifx#1\_#1\zerowsep\else#1\fi\let\next\ZSEP\fi\next}
 \newcommand{\zsep}[1]{\ZSEP{}#1\@@@EOZ@@@}
+\fi
 \makeatother
 
 \newcommand{\sol}[1]{\emph{\zsep{#1}}}
@@ -2560,15 +2570,15 @@ policy. The default allocation policy behavior is left to the
 implementation.  The default allocation parameter is
 GASPI\_ALLOC\_DEFAULT.
 
+
+Remarks:
+
 After successful procedure completion, i.\,e.\ return value \GASPISUCC{},
 the segment can be accessed locally.
 In case that there is a connection established to a remote \GASPI{} process,
-it can also be used for passive communication between the two \GASPI{} processes.
+it can also be used as a local segment for \GASPI{} communication calls between the two \GASPI{} processes.
 (Note that this is always the case if the process has been initialized
-with the parameter \parameter{build\_infrastructure} set to \emph{true}),
-it can also be used for passive communication between the two \GASPI{} processes;
-either as a source segment for \gaspifunction{passive\_send} or as a
-destination segment for \gaspifunction{passive\_receive}.
+with the parameter \parameter{build\_infrastructure} set to \emph{true}).
 
 A return value \GASPIGERR{} indicates that the segment allocation
 failed and the segment cannot be used.
@@ -3028,7 +3038,8 @@ where the call gets executed on all members of \parameter{group}.
 
 The \gaspisemantic{synchronous} \gaspisemantic{local}
 \gaspisemantic{blocking} procedure \gaspifunction{segment\_delete}
-releases the resources of a previously allocated memory segment.
+releases the resources of a previously allocated or bound memory segment.
+The corresponding segment ID can be reused after successful procedure completion.
 
 \begin{FDef}
 
@@ -3067,9 +3078,11 @@ end function gaspi_segment_delete
 which is referenced by the \parameter{segment\_id} identifier.
 
 After successful procedure completion, i.\,e.\ return value \GASPISUCC{},
-the segment is deleted and the resources are released. It would be an
-application error to use the segment for communication
-between two \GASPI{} processes after \gaspifunction{delete} has been called.
+the internal resources are released. This includes the segment memory, 
+if the segment was created via \gaspifunction{segment\_alloc} 
+or \gaspifunction{segment\_create}.
+It would be an application error to use the segment for communication
+between two \GASPI{} processes after \gaspifunction{segment\_delete} has been called.
 
 In case of return value \GASPIGERR{}, the segment deletion failed. The
 segment is in an undefined state and cannot be used locally neither
@@ -5683,13 +5696,14 @@ next call of the procedure. This implies that a collective operation
 may involve several procedure calls until completion. Completion is
 indicated by return value \GASPISUCC{}.
 
-Collective operations are exclusive per group, i.\,e.\ only one collective
-operation of a specific type on a given group can run at a given time. Starting a
-specific collective operation before another one of the same kind is not
-finished on all processes of the group
-(and marked as such) is not allowed and yields undefined behavior.
-For example, two allreduce operations for one group can not run at the same time; however,
-an allreduce and a barrier operation can run at the same time.
+Collective operations are exclusive per group, i.\,e.\ only one collective 
+operation of a specific type on a given group can run at a given time. 
+Starting a specific collective operation on the same group, while another 
+collective operation of the same kind has not returned locally with 
+\GASPISUCC{} or an error value yields undefined behavior. 
+For example, two \gaspifunction{allreduce} operations for one group can not run at the 
+same time on a given process; however, an \gaspifunction{allreduce} and a \gaspifunction{barrier} 
+operation can run at the same time.
 
 The timeout is a necessary condition in order to be able to write
 failure tolerant code. Timeout $=0$ makes an atomic portion of
@@ -5808,10 +5822,8 @@ barrier operation may involve several \gaspifunction{barrier} calls until
 completion.
 
 Barrier operations are exclusive per group, i.\,e.\ only one barrier
-operation on a given group can run at a time. Starting a
-barrier operation in another thread before a previously invoked barrier is finished
-on all processes of the group
-is not allowed and yields undefined behavior.
+operation on a given group can run at a time. 
+A concurrent call to a barrier operation on the same group yields undefined behavior.
 
 In case of error, the return value is \GASPIGERR{}. The error vector should be
 investigated.
@@ -5848,7 +5860,7 @@ const gaspi_return_t err = gaspi_barrier (g, GASPI_TEST);
 
 do_local_cleanup();
 
-if (err != GASPI_ERROR && err != GASPI_SUCCESS)
+if (err == GASPI_TIMEOUT)
 {
     gaspi_barrier (g, GASPI_BLOCK);
 }
@@ -5940,15 +5952,16 @@ reduction operation may involve several \gaspifunction{allreduce} calls until
 completion.
 
 Reduction operations are exclusive per group, i.\,e.\ only one reduction
-operation on a given group can run at a time. Starting a
-reduction operation for the same group in a separate thread before previously invoked operation
-is finished on all processes of the group
-is not allowed and yields undefined behavior.
+operation on a given group can run at a time. 
+A concurrent call to a reduction operation on the same group yields undefined behavior. 
+In addition, if there is a running reduction operation 
+(e.g. the last call returned \GASPITIME{}), then calling that reduction operation on 
+the same group with different arguments beside the timeout parameter yields undefined behavior.
 
 The \parameter{buffer\_send} as well as the \parameter{buffer\_receive} do not need
 to reside in the global address space. \gaspifunction{allreduce} copies the send
 buffer into an internal buffer at the first invocation. The result is copied from
-an internal buffer into the receive buffer immediatley before the procedure returns
+an internal buffer into the receive buffer immediately before the procedure returns
 successfully.
 The buffers need to have the appropriate
 size to host all of the \parameter{num} elements. Otherwise the reduction operation yields
